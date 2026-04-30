@@ -4,206 +4,186 @@
 `include "instruction_def.v"
 
 module ControlUnit(
-    input rst,          //给流水线寄存器用的
-    input clk,          //
-    input zero,         //
-    input [6:0] opcode, //
-    input [6:0] Funct7, //
-    input [2:0] Funct3, //
+    input rst,
+    input clk,
+    input zero,
+    input [6:0] opcode,
+    input [6:0] Funct7,
+    input [2:0] Funct3,
     input [4:0] id_rs1, id_rs2, id_rd,
-    input ID_Branch_Taken,        // 来自 NPC 的分支判定结果
-    
-    output reg PCWrite, //是否更新PC
-    output reg InsMemRW,//是否取指令
-    output reg IRWrite, //IR是否输出指令
-    output reg RFWrite,mem_RFWrite, //RF是否写入数据
-    output reg DMCtrl,  //DM读或写
-    output reg ExtSel,  //扩展模式0/signed
-    output reg ALUSrcA, //ALUA的来源
-    output reg [1:0] ALUSrcB,//ALUB 的来源
-    output reg [1:0] RegSel, //写回RF的地址选择
-    output reg [1:0] NPCOp,  //NPC的数值来源
-    output reg [1:0] WDSel,  //写回data的来源
-    output reg [3:0] ALUOp,   //ALU计算模式
-    //以上全部原本就有的接口都用作EXpipeline输出口
-    output reg [4:0] ex_rs1, ex_rs2,wb_rd,
+    input EX_Jump_Taken,
+
+    output reg PCWrite,
+    output reg InsMemRW,
+    output reg IRWrite,
+    output reg RFWrite, mem_RFWrite,
+    output reg DMCtrl,
+    output reg ExtSel,
+    output reg ALUSrcA,
+    output reg [1:0] ALUSrcB,
+    output reg [1:0] RegSel,
+    output reg [1:0] NPCOp,
+    output reg [1:0] WDSel,
+    output reg [3:0] ALUOp,
+    output reg [4:0] ex_rs1, ex_rs2, wb_rd,
     output StallF, StallD, FlushD, FlushE,
-    output reg [4:0] mem_rd
+    output reg [4:0] mem_rd,
+    output reg Funct3_0
 );
-    reg id_RFWrite, id_DMCtrl, id_ALUSrcA, id_Jump, id_Branch;
-    reg [1:0] id_ALUSrcB, id_RegSel, id_WDSel,mem_WDSel,ex_WDSel;
+    reg id_RFWrite, id_DMCtrl, id_ALUSrcA;
+    reg [1:0] id_ALUSrcB, id_RegSel, id_WDSel, id_NPCOp;
+    reg [1:0] mem_WDSel, ex_WDSel;
     reg [3:0] id_ALUOp;
     reg ex_RFWrite;
-//    reg ex_DMCtrl;
-    reg [1:0] ALU_category ; //对ALU计算模式的细分
-    reg [1:0] mem_RegSel,ex_RegSel;
+    reg [1:0] ALU_category;
+    reg [1:0] mem_RegSel, ex_RegSel;
     reg [4:0] ex_rd;
+
     always @(*) begin
-        PCWrite  = 1'b1;           
-        InsMemRW = 1'b1; 
-        IRWrite  = 1'b1;    //上面都正常无气泡情况下默认正常输出运行
-        id_RFWrite  = 1'b0;    //默认不写
-        id_DMCtrl   = `DMCtrl_RD;     // 默认不写
-        id_ALUSrcA  = `ALUSrcA_A;     // 默认rs1
-        id_ALUSrcB  = `ALUSrcB_B;     // 默认rs2
-        id_RegSel   = `RegSel_rd;     // 默认写回来源于rd
-        id_WDSel    = `WDSel_FromALU; // 默认写回数据来自ALU
-        NPCOp    = `NPC_PC;        // 默认+4
-        ExtSel   = `ExtSel_SIGNED;   // 默认有符号拓展
-        ALU_category = 2'b00;      // 默认用加法
-        id_Jump     = 1'b0;
-        id_Branch   = 1'b0;
+        PCWrite     = 1'b1;
+        InsMemRW    = 1'b1;
+        IRWrite     = 1'b1;
+        id_RFWrite  = 1'b0;
+        id_DMCtrl   = `DMCtrl_RD;
+        id_ALUSrcA  = `ALUSrcA_A;
+        id_ALUSrcB  = `ALUSrcB_B;
+        id_RegSel   = `RegSel_rd;
+        id_WDSel    = `WDSel_FromALU;
+        id_NPCOp    = `NPC_PC;
+        ExtSel      = `ExtSel_SIGNED;
+        ALU_category = 2'b00;
+
         case (opcode)
             `INSTR_RTYPE_OP: begin
-                id_RFWrite      = 1'b1;
-                ALU_category = 2'b10; //即R型
+                id_RFWrite  = 1'b1;
+                ALU_category = 2'b10;
             end
             `INSTR_ITYPE_OP: begin
-                id_RFWrite      = 1'b1;
-                id_ALUSrcB      = `ALUSrcB_Imm;
-                ALU_category = 2'b11;        // 即I型，R&I要二次分类
+                id_RFWrite  = 1'b1;
+                id_ALUSrcB  = `ALUSrcB_Imm;
+                ALU_category = 2'b11;
             end
             `INSTR_LW_OP: begin
-                id_RFWrite      = 1'b1;
-                id_ALUSrcB      = `ALUSrcB_Imm; 
-                id_WDSel        = `WDSel_FromMEM; 
+                id_RFWrite  = 1'b1;
+                id_ALUSrcB  = `ALUSrcB_Imm;
+                id_WDSel    = `WDSel_FromMEM;
                 ALU_category = 2'b00;
             end
             `INSTR_SW_OP: begin
-                id_DMCtrl       = `DMCtrl_WR;  
-                id_ALUSrcB      = `ALUSrcB_Offset; 
-                ALU_category = 2'b00;   
+                id_DMCtrl   = `DMCtrl_WR;
+                id_ALUSrcB  = `ALUSrcB_Offset;
+                ALU_category = 2'b00;
             end
             `INSTR_BTYPE_OP: begin
+                id_NPCOp    = `NPC_Offset12;
                 ALU_category = 2'b01;
-                NPCOp    = `NPC_Offset12;
-                id_Branch   = 1'b1;
             end
             `INSTR_JAL_OP: begin
-                id_RFWrite      = 1'b1;
-                id_WDSel        = `WDSel_FromPC;  // 将 PC+4 写入 rd
-                NPCOp        = `NPC_Offset20;  // 触发 JAL 跳转
-                id_Jump         = 1'b1;
+                id_RFWrite  = 1'b1;
+                id_WDSel    = `WDSel_FromPC;
+                id_NPCOp    = `NPC_Offset20;
             end
             `INSTR_JALR_OP: begin
-                id_RFWrite      = 1'b1;
-                id_WDSel        = `WDSel_FromPC;  // 将 PC+4 写入 rd
-                NPCOp        = `NPC_rs;        // 触发 JALR 跳转，且imm有符号
-                id_ALUSrcB      = `ALUSrcB_Imm;
-                id_Jump         = 1'b1;
+                id_RFWrite  = 1'b1;
+                id_WDSel    = `WDSel_FromPC;
+                id_NPCOp    = `NPC_rs;
+                id_ALUSrcB  = `ALUSrcB_Imm;
             end
             default: ;
         endcase
-end
-always @(*) begin
-    id_ALUOp = `ALUOp_ADD; 
-    case (ALU_category)
-        2'b00: id_ALUOp = `ALUOp_ADD; // Load/Store 算地址，统统用加法
-        2'b01: id_ALUOp = `ALUOp_SUB; // 分支指令，统统用减法去比较
-        2'b10: begin // 处理 R 型算术/逻辑指令
-            case (Funct3)
-                3'b000: id_ALUOp = (Funct7[5]) ? `ALUOp_SUB : `ALUOp_ADD; // add, sub
-                3'b001: id_ALUOp = `ALUOp_SLL;                            // sll
-                3'b100: id_ALUOp = `ALUOp_XOR;                            // xor
-                3'b101: id_ALUOp = (Funct7[5]) ? `ALUOp_SRA : `ALUOp_SRL; // sra, srl
-                3'b110: id_ALUOp = `ALUOp_OR;                             // or
-                3'b111: id_ALUOp = `ALUOp_AND;                            // and
-                default: id_ALUOp = `ALUOp_ADD;
-            endcase
-        end
-        2'b11: begin 
-            case (Funct3)
-                `INSTR_ADDI_FUNCT: id_ALUOp = `ALUOp_ADD; // addi
-                `INSTR_ORI_FUNCT:  id_ALUOp = `ALUOp_OR;  // ori
-                default: id_ALUOp = `ALUOp_ADD;
-            endcase
-        end
-    endcase
-end
+    end
+
+    always @(*) begin
+        id_ALUOp = `ALUOp_ADD;
+        case (ALU_category)
+            2'b00: id_ALUOp = `ALUOp_ADD;
+            2'b01: id_ALUOp = `ALUOp_SUB;
+            2'b10: begin
+                case (Funct3)
+                    3'b000: id_ALUOp = Funct7[5] ? `ALUOp_SUB : `ALUOp_ADD;
+                    3'b001: id_ALUOp = `ALUOp_SLL;
+                    3'b100: id_ALUOp = `ALUOp_XOR;
+                    3'b101: id_ALUOp = Funct7[5] ? `ALUOp_SRA : `ALUOp_SRL;
+                    3'b110: id_ALUOp = `ALUOp_OR;
+                    3'b111: id_ALUOp = `ALUOp_AND;
+                    default: id_ALUOp = `ALUOp_ADD;
+                endcase
+            end
+            2'b11: begin
+                case (Funct3)
+                    `INSTR_ADDI_FUNCT: id_ALUOp = `ALUOp_ADD;
+                    `INSTR_ORI_FUNCT:  id_ALUOp = `ALUOp_OR;
+                    default: id_ALUOp = `ALUOp_ADD;
+                endcase
+            end
+            default: id_ALUOp = `ALUOp_ADD;
+        endcase
+    end
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             ALUOp <= 0; ALUSrcB <= 0; ex_WDSel <= 0; ex_RegSel <= 0;
-            ALUSrcA <= 0; DMCtrl <= 0; ex_RFWrite <= 0;
-            ex_rs1 <= 0; ex_rs2 <= 0; ex_rd <= 0;
-        end
-        else if (FlushE) begin
-            ALUOp <= 0;
-            ALUSrcB <= 0; ex_WDSel <= 0; ex_RegSel <= 0;
-            ALUSrcA <= 0; DMCtrl <= 0; ex_RFWrite <= 0;
-            ex_rs1 <= 0; ex_rs2 <= 0; ex_rd <= 0;
-        end
-        else begin
-            ALUOp <= id_ALUOp; ALUSrcB <= id_ALUSrcB; 
-            ex_WDSel <= id_WDSel; ex_RegSel <= id_RegSel; ALUSrcA <= id_ALUSrcA; 
-            DMCtrl <= id_DMCtrl; ex_RFWrite <= id_RFWrite;
-            ex_rs1 <= id_rs1; ex_rs2 <= id_rs2; ex_rd <= id_rd;
+            ALUSrcA <= 0; DMCtrl <= 0; ex_RFWrite <= 0; NPCOp <= 0;
+            ex_rs1 <= 0; ex_rs2 <= 0; ex_rd <= 0; Funct3_0 <= 0;
+        end else if (FlushE) begin
+            ALUOp <= 0; ALUSrcB <= 0; ex_WDSel <= 0; ex_RegSel <= 0;
+            ALUSrcA <= 0; DMCtrl <= 0; ex_RFWrite <= 0; NPCOp <= 0;
+            ex_rs1 <= 0; ex_rs2 <= 0; ex_rd <= 0; Funct3_0 <= 0;
+        end else begin
+            ALUOp <= id_ALUOp; ALUSrcB <= id_ALUSrcB;
+            ex_WDSel <= id_WDSel; ex_RegSel <= id_RegSel; ALUSrcA <= id_ALUSrcA;
+            DMCtrl <= id_DMCtrl; ex_RFWrite <= id_RFWrite; NPCOp <= id_NPCOp;
+            ex_rs1 <= id_rs1; ex_rs2 <= id_rs2; ex_rd <= id_rd; Funct3_0 <= Funct3[0];
         end
     end
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-//            DMCtrl  <= 0;
             mem_RFWrite <= 0;
             mem_WDSel   <= 0;
             mem_rd      <= 5'b0;
             mem_RegSel  <= 0;
-        end 
-        else begin
-            // 数据往下级流动
-//            DMCtrl  <= ex_DMCtrl;
+        end else begin
             mem_RFWrite <= ex_RFWrite;
             mem_WDSel   <= ex_WDSel;
             mem_rd      <= ex_rd;
             mem_RegSel  <= ex_RegSel;
         end
     end
-    
+
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             RFWrite <= 0;
             RegSel  <= 0;
-            wb_rd      <= 5'b0;
+            wb_rd   <= 5'b0;
             WDSel   <= 0;
-        end 
-        else begin
-            // 继续往下级流动
+        end else begin
             RFWrite <= mem_RFWrite;
-            RegSel  <= mem_RegSel; // 注意：RegSel 在 MEM 没用，可以直接从 EX 传到 WB，或者再加一级缓冲
-            wb_rd      <= mem_rd;
+            RegSel  <= mem_RegSel;
+            wb_rd   <= mem_rd;
             WDSel   <= mem_WDSel;
         end
     end
-    
-//——————冒险检测单元——————用always语句来搞个时序，好像就可以了//
-    wire ID_is_Branch = (opcode == `INSTR_BTYPE_OP);
-    wire ID_is_JALR   = (opcode == `INSTR_JALR_OP);
-    
+
     wire id_reads_rs1 = (opcode != `INSTR_JAL_OP);
-    wire id_reads_rs2 = (opcode == `INSTR_RTYPE_OP || opcode == `INSTR_SW_OP || ID_is_Branch);
-    
-    wire ex_is_load  = (ex_WDSel  == `WDSel_FromMEM);
-    wire mem_is_load = (mem_WDSel == `WDSel_FromMEM);
-    
+    wire id_reads_rs2 = (opcode == `INSTR_RTYPE_OP) ||
+                        (opcode == `INSTR_SW_OP) ||
+                        (opcode == `INSTR_BTYPE_OP);
+    wire ex_is_load = (ex_WDSel == `WDSel_FromMEM);
+
     wire load_use_stall = ex_is_load && (ex_rd != 5'd0) &&
                           ((id_reads_rs1 && (ex_rd == id_rs1)) ||
                            (id_reads_rs2 && (ex_rd == id_rs2)));
-    
-    wire id_npc_needs_rs1 = ID_is_Branch || ID_is_JALR;
-    wire id_npc_needs_rs2 = ID_is_Branch;
-    
-    wire npc_stall_EX = (ID_is_Branch || ID_is_JALR) && ex_RFWrite && (ex_rd != 5'd0) &&
-                        ((id_npc_needs_rs1 && (ex_rd == id_rs1)) ||
-                         (id_npc_needs_rs2 && (ex_rd == id_rs2)));
-    
-    wire npc_stall_MEM = (ID_is_Branch || ID_is_JALR) && mem_is_load && (mem_rd != 5'd0) &&
-                         ((id_npc_needs_rs1 && (mem_rd == id_rs1)) ||
-                          (id_npc_needs_rs2 && (mem_rd == id_rs2)));
-    
-    wire Stall_Global = load_use_stall || npc_stall_EX || npc_stall_MEM;
-    
+
+    wire mem_is_link = (mem_WDSel == `WDSel_FromPC);
+    wire link_use_stall = mem_is_link && mem_RFWrite && (mem_rd != 5'd0) &&
+                          ((id_reads_rs1 && (mem_rd == id_rs1)) ||
+                           (id_reads_rs2 && (mem_rd == id_rs2)));
+
+    wire Stall_Global = load_use_stall || link_use_stall;
+
     assign StallF = Stall_Global;
     assign StallD = Stall_Global;
-    assign FlushE = Stall_Global;
-    assign FlushD = ID_Branch_Taken && !Stall_Global;
+    assign FlushE = Stall_Global || EX_Jump_Taken;
+    assign FlushD = EX_Jump_Taken;
 endmodule

@@ -1,86 +1,77 @@
 `include "ctrl_signal_def.v"
 `include "instruction_def.v"
-module NPC(NPCOp, Offset12, Offset20, PC, rs, imm, PCA4, NPC,ID_RD1, ID_RD2,funct3_0,id_PC,stallF,
-           ID_rs1, ID_rs2,MEM_ALU_result,MEM_rd,MEM_RFWrite,ID_Branch_Taken,clk, rst, FlushE);
-    input  [1:0]  NPCOp;     //控制信号
-    input  [12:1] Offset12;  //SB指令的跳转偏移量
-    input  [20:1] Offset20;  //JAL指令的跳转偏移量
-    input  [31:0] PC,id_PC;        //本条指令的地址--PC可能要被舍弃掉了，因为跨了一个流水线
-    input  [31:0] rs;        //跳转到子程序的地址
-    input  [31:0] imm;       //用于计算jalr的偏移地址，经过了ext的拓展
-    output reg [31:0] PCA4;  //PC+4，把它作为最终WBreg出来的PC4
-    output reg [31:0] NPC;   //下一条指令的地址
-    input clk, rst, FlushE,stallF;
-    input [31:0] ID_RD1, ID_RD2;
-    input [4:0]  ID_rs1, ID_rs2;
-    input [31:0] MEM_ALU_result; // ID 阶段专用的前递数据源 (注意：EX产生的数据已被stall屏蔽，这里主要接MEM阶段)
-    input [4:0]  MEM_rd;
-    input funct3_0;
-    input MEM_RFWrite;
-    output ID_Branch_Taken; // 告诉 ControlUnit 分支是否成立，用于 Flush IF
-    
-    wire [31:0] mem_PCA4,ex_PCA4; // 顺带打拍传递给下一级的 PC+4
 
-    wire signed [12:0] Offset13;
-    wire signed [20:0] Offset21;
-    reg [31:0] id_PCA4;
-    reg [31:0] next_PC;
-    wire forward_A_ID = (MEM_RFWrite && (MEM_rd != 5'd0) && (MEM_rd == ID_rs1));
-    wire forward_B_ID = (MEM_RFWrite && (MEM_rd != 5'd0) && (MEM_rd == ID_rs2));
+module NPC(
+    input  [1:0]  NPCOp,
+    input  [12:1] ex_Offset,
+    input  [20:1] ex_Offset20,
+    input  [31:0] PC,
+    input  [31:0] ex_PC,
+    input  [31:0] ex_RD1,
+    input  [31:0] ex_RD2,
+    input  [4:0]  ex_rs1,
+    input  [4:0]  ex_rs2,
+    input  [31:0] mem_ALU_result,
+    input  [4:0]  mem_rd,
+    input  [31:0] wb_WD,
+    input  [4:0]  wb_rd,
+    input         mem_RFWrite,
+    input         wb_RFWrite,
+    input  [31:0] ex_imm32,
+    input         funct3_0,
+    input         stallF,
+    input         clk,
+    input         rst,
+    output        EX_Jump_Taken,
+    output reg [31:0] PCA4,
+    output reg [31:0] NPC
+);
+    wire [31:0] mem_PCA4;
+    wire signed [31:0] branch_offset = {{19{ex_Offset[12]}}, ex_Offset[12:1], 1'b0};
+    wire signed [31:0] jal_offset    = {{11{ex_Offset20[20]}}, ex_Offset20[20:1], 1'b0};
 
-    wire [31:0] cmp_A = forward_A_ID ? MEM_ALU_result : ID_RD1;
-    wire [31:0] cmp_B = forward_B_ID ? MEM_ALU_result : ID_RD2;
-    
-    wire is_equal     = (cmp_A == cmp_B);
-    wire is_not_equal = (cmp_A != cmp_B);
+    wire is_branch = (NPCOp == `NPC_Offset12);
+    wire is_jalr   = (NPCOp == `NPC_rs);
+    wire is_jal    = (NPCOp == `NPC_Offset20);
 
-    wire branch_condition_met;
-    assign branch_condition_met = funct3_0 ? is_not_equal : is_equal;
+    wire [31:0] br_A = (mem_RFWrite && (mem_rd != 5'd0) && (mem_rd == ex_rs1)) ? mem_ALU_result :
+                       (wb_RFWrite  && (wb_rd  != 5'd0) && (wb_rd  == ex_rs1)) ? wb_WD : ex_RD1;
 
-    assign ID_Branch_Taken = ((NPCOp == `NPC_Offset12) && branch_condition_met) ||
-                             (NPCOp == `NPC_rs) ||
-                             (NPCOp == `NPC_Offset20);
-    
-    assign Offset13 = $signed({Offset12[12:1], 1'b0});  //实际为13位
-    assign Offset21 = $signed({Offset20[20:1], 1'b0});  //实际为21位
-    
-    reg [31:0] jump_target;
+    wire [31:0] br_B = (mem_RFWrite && (mem_rd != 5'd0) && (mem_rd == ex_rs2)) ? mem_ALU_result :
+                       (wb_RFWrite  && (wb_rd  != 5'd0) && (wb_rd  == ex_rs2)) ? wb_WD : ex_RD2;
 
-    always@(*) begin
-        case(NPCOp)
-            `NPC_PC      : jump_target = id_PC + 4;//感觉是没什么用了
-            `NPC_Offset12: jump_target = branch_condition_met ? ($signed({1'b0, id_PC}) + $signed(Offset13)) : (id_PC + 4);  //sb指令地址跳转，PC一直是正数，要加个0语法糖防止它变成负数
-            `NPC_rs      : jump_target = (cmp_A + imm) & 32'hffff_fffe;                              //指令地址跳转为rs，jalr要改逻辑加个imm
-            `NPC_Offset20: jump_target = $signed({1'b0, id_PC}) + $signed(Offset21);  //jal指令地址跳转
-            default      : jump_target = id_PC + 4; //单纯防锁存
-        endcase
-        id_PCA4 = id_PC + 4;//单纯是用来给写回
-    end
-    
-    wire [31:0] NPC_4=PC+4;
-    
+    wire branch_eq = (br_A == br_B);
+    wire branch_condition_met = is_branch && (funct3_0 ? !branch_eq : branch_eq);
+
+    wire [31:0] pc4_target    = PC + 4;
+    wire [31:0] branch_target = $signed(ex_PC) + branch_offset;
+    wire [31:0] jal_target    = $signed(ex_PC) + jal_offset;
+    wire [31:0] jalr_target   = (br_A + ex_imm32) & 32'hffff_fffe;
+    wire [31:0] ex_PCA4      = ex_PC + 4;
+
+    assign EX_Jump_Taken = branch_condition_met || is_jalr || is_jal;
+
     always @(*) begin
-        if (ID_Branch_Taken) begin
-            next_PC = jump_target; // 发生跳转，把 ID 算出来的跳转地址扔给顶层 PC
-        end else begin
-            next_PC = NPC_4; // 不跳转，把 IF 算出来的 PC+4 扔给顶层 PC
-        end
-    end
-    
-    always @(*) begin
-        if(stallF)
+        if (stallF)
             NPC = PC;
+        else if (branch_condition_met)
+            NPC = branch_target;
+        else if (is_jal)
+            NPC = jal_target;
+        else if (is_jalr)
+            NPC = jalr_target;
         else
-            NPC = next_PC;
+            NPC = pc4_target;
     end
-    
-    Flopr U_ID_EX_PCA4 ( .clk(clk), .rst(rst), .in_data(id_PCA4), .out_data(ex_PCA4),.CLR(FlushE), .Stall(1'b0) );
-    Flopr U_EX_MEM_PCA4 ( .clk(clk), .rst(rst), .in_data(ex_PCA4),.out_data(mem_PCA4),.CLR(1'b0), .Stall(1'b0) );
+
+    Flopr U_EX_MEM_PCA4 (
+        .clk(clk), .rst(rst), .in_data(ex_PCA4), .out_data(mem_PCA4), .CLR(1'b0), .Stall(1'b0)
+    );
+
     always @(posedge clk or posedge rst) begin
-        if(rst)
-            PCA4 <= 0;    //复位后，输出为0
+        if (rst)
+            PCA4 <= 0;
         else
-            PCA4 <= mem_PCA4;  //将输入数据输出
+            PCA4 <= mem_PCA4;
     end
-    
 endmodule

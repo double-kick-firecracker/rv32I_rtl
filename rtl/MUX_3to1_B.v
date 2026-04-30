@@ -26,7 +26,7 @@ module MUX_3to1_B(X, Y, Z, control, out,mem_ALU_result,wb_WD,ex_rs2, mem_rd, wb_
         case(control)
             `ALUSrcB_B      : out = Forwarded_Data;          //选择X
             `ALUSrcB_Imm    : out = Y_2;          //选择Y
-            `ALUSrcB_Offset : out = $signed(Z_2); //选择Z（符号扩展为32位）
+            `ALUSrcB_Offset : out = {{20{Z_2[11]}}, Z_2}; //选择Z（符号扩展为32位）
             `ALUSrcB_else   : out = Forwarded_Data;          //选择X
             default         : out = 32'b0;       
         endcase
