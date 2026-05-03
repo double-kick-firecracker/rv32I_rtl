@@ -22,6 +22,7 @@ module ControlUnit(
     output reg ALUSrcA,
     output reg [1:0] ALUSrcB,
     output reg [1:0] RegSel,
+    output reg [1:0] mem_WDSel,
     output reg [1:0] NPCOp,
     output reg [1:0] WDSel,
     output reg [3:0] ALUOp,
@@ -33,7 +34,7 @@ module ControlUnit(
     reg [1:0] id_ALUSrcB, id_RegSel, id_WDSel;
     reg [3:0] id_ALUOp;
     reg ex_RFWrite;
-    reg [1:0] ex_WDSel, mem_WDSel;
+    reg [1:0] ex_WDSel;
     reg [1:0] mem_RegSel, ex_RegSel;
     reg [4:0] ex_rd;
 

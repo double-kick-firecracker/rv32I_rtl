@@ -2,7 +2,7 @@
 `include "instruction_def.v"
 
 module NPC(NPCOp, Offset12, Offset20, PC, rs, imm, PCA4, NPC, ID_RD1, ID_RD2, funct3_0, id_PC, stallF,
-           ID_rs1, ID_rs2, MEM_ALU_result, MEM_rd, MEM_RFWrite, ID_Branch_Taken, clk, rst, FlushE);
+           ID_rs1, ID_rs2, MEM_ALU_result, MEM_rd, MEM_RFWrite, MEM_WDSel, ID_Branch_Taken, clk, rst, FlushE);
     input  [1:0]  NPCOp;
     input  [12:1] Offset12;
     input  [20:1] Offset20;
@@ -16,6 +16,7 @@ module NPC(NPCOp, Offset12, Offset20, PC, rs, imm, PCA4, NPC, ID_RD1, ID_RD2, fu
     input [4:0]  ID_rs1, ID_rs2;
     input [31:0] MEM_ALU_result;
     input [4:0]  MEM_rd;
+    input [1:0]  MEM_WDSel;
     input funct3_0;
     input MEM_RFWrite;
     output ID_Branch_Taken;
@@ -29,8 +30,11 @@ module NPC(NPCOp, Offset12, Offset20, PC, rs, imm, PCA4, NPC, ID_RD1, ID_RD2, fu
 
     wire [31:0] cmp_A;
     wire [31:0] cmp_B;
-    assign cmp_A = forward_A_ID ? MEM_ALU_result : ID_RD1;
-    assign cmp_B = forward_B_ID ? MEM_ALU_result : ID_RD2;
+    wire [31:0] mem_forward_value;
+    assign mem_forward_value = (MEM_WDSel == `WDSel_FromPC) ? mem_PCA4 : MEM_ALU_result;
+
+    assign cmp_A = forward_A_ID ? mem_forward_value : ID_RD1;
+    assign cmp_B = forward_B_ID ? mem_forward_value : ID_RD2;
 
     wire branch_equal;
     wire branch_taken;
