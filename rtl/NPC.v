@@ -21,7 +21,6 @@ module NPC(NPCOp, Offset12, Offset20, PC, rs, imm, PCA4, NPC, ID_RD1, ID_RD2, fu
     input MEM_RFWrite;
     output ID_Branch_Taken;
 
-    wire [31:0] mem_PCA4, ex_PCA4;
     wire signed [12:0] Offset13;
     wire signed [20:0] Offset21;
 
@@ -30,11 +29,9 @@ module NPC(NPCOp, Offset12, Offset20, PC, rs, imm, PCA4, NPC, ID_RD1, ID_RD2, fu
 
     wire [31:0] cmp_A;
     wire [31:0] cmp_B;
-    wire [31:0] mem_forward_value;
-    assign mem_forward_value = (MEM_WDSel == `WDSel_FromPC) ? mem_PCA4 : MEM_ALU_result;
 
-    assign cmp_A = forward_A_ID ? mem_forward_value : ID_RD1;
-    assign cmp_B = forward_B_ID ? mem_forward_value : ID_RD2;
+    assign cmp_A = forward_A_ID ? MEM_ALU_result : ID_RD1;
+    assign cmp_B = forward_B_ID ? MEM_ALU_result : ID_RD2;
 
     wire branch_equal;
     wire branch_taken;
@@ -78,6 +75,8 @@ module NPC(NPCOp, Offset12, Offset20, PC, rs, imm, PCA4, NPC, ID_RD1, ID_RD2, fu
 
     wire [31:0] id_PCA4 = id_PC + 32'd4;
 
+    wire [31:0] ex_PCA4;
+    wire [31:0] mem_PCA4;
     Flopr U_ID_EX_PCA4 (.clk(clk), .rst(rst), .in_data(id_PCA4), .out_data(ex_PCA4), .CLR(FlushE), .Stall(1'b0));
     Flopr U_EX_MEM_PCA4 (.clk(clk), .rst(rst), .in_data(ex_PCA4), .out_data(mem_PCA4), .CLR(1'b0), .Stall(1'b0));
 

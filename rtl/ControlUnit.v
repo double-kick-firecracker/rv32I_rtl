@@ -47,6 +47,7 @@ module ControlUnit(
 
     wire ex_is_load  = (ex_WDSel == `WDSel_FromMEM);
     wire mem_is_load = (mem_WDSel == `WDSel_FromMEM);
+    wire mem_is_link  = mem_RFWrite && (mem_WDSel == `WDSel_FromPC);
 
     wire load_use_stall = ex_is_load && (ex_rd != 5'd0) &&
                           ((id_reads_rs1 && (ex_rd == id_rs1)) ||
@@ -61,6 +62,9 @@ module ControlUnit(
                           ((id_npc_needs_rs1 && (ex_rd == id_rs1)) ||
                            (id_npc_needs_rs2 && (ex_rd == id_rs2)))) ||
                          (mem_is_load && (mem_rd != 5'd0) &&
+                          ((id_npc_needs_rs1 && (mem_rd == id_rs1)) ||
+                           (id_npc_needs_rs2 && (mem_rd == id_rs2)))) ||
+                         (mem_is_link && (mem_rd != 5'd0) &&
                           ((id_npc_needs_rs1 && (mem_rd == id_rs1)) ||
                            (id_npc_needs_rs2 && (mem_rd == id_rs2))))
                      );
